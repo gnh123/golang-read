@@ -4,6 +4,7 @@ context的重要性不容置疑, 只要用过grpc或者sql的包, 都会发现�
 结束就是如何用好context, 避免一些坑.
 
 ## 一、context 暴露的接口有
+```go
 /*
                                           ┌───────────────────┐
                                           │                   │
@@ -40,14 +41,14 @@ context的重要性不容置疑, 只要用过grpc或者sql的包, 都会发现�
                                           │                   │
                                           └───────────────────┘
  */
-
+```
  ## 二、context包级函数
 * WithCancel 继承一个context, 返回cancel
 * WithTimeout, 设置一个时间段之后超时
 * WithDeadline, 设置截止时间
 * Background, TODO 创建一个空的ctx
 * WithValue, 设置值到context里面
-
+```go
  /*
                                 ┌─────────────┐
                                 │             │
@@ -99,9 +100,10 @@ context的重要性不容置疑, 只要用过grpc或者sql的包, 都会发现�
                                 │             │
                                 └─────────────┘
  */
-
+```
  ## 三、WithValue和Value--存值和取值的流程
  从源代码上看, 每次调用WithValue就是新建一个链表的node. 每次调查是O(n)次.
+ ```go
  /*
                                                  ┌───────┐
                                                  │       │
@@ -124,6 +126,7 @@ context的重要性不容置疑, 只要用过grpc或者sql的包, 都会发现�
 │         │
 └─────────┘
  */
+ ```
 ### 3.1 核心代码
 * 链表加节点 ```&valueCtx{parent, key, val}```
 * 查找链表中的元素 ```c.Context.Value(key) ```
