@@ -1,5 +1,9 @@
+## 源代码版本
+```v1.17.6```
+
 ## 零、前言 context
-context的重要性不容置疑, 只要用过grpc或者sql的包, 都会发现这个参数. 出现频率之高在向 ``` if err != nil ``` 靠齐
+
+context的重要性不容置疑, 只要用过grpc或者sql的包, 都会发现这个参数. 出现频率之高在向 ``` if err != nil ``` 靠齐, 
 本文是对context源代码的分析,全文分几个部分, 先复习下context的方法, 包级函数, 然后是如何实现, 最后一块是源代码流程账. 
 结束就是如何用好context, 避免一些坑.
 
@@ -23,11 +27,11 @@ context的重要性不容置疑, 只要用过grpc或者sql的包, 都会发现�
 │               │
 │               │
 │               │                         ┌─┬─────────────────┐
-│               │                         │┼│                 │
-│               │                         │┼│                 │
-│               │                         │┼│  Err            │
-│               │                         │┼│                 │
-└──────┬────────┴─────────────────────────┼┼│                 │
+│               │                         │                   │
+│               │                         │                   │
+│               │                         │    Err            │
+│               │                         │                   │
+└──────┬────────┴─────────────────────────┼                   │
        │                                  └─┴─────────────────┘
        │
        │
@@ -43,7 +47,7 @@ context的重要性不容置疑, 只要用过grpc或者sql的包, 都会发现�
  */
 ```
  ## 二、context包级函数
-* WithCancel 继承一个context, 返回cancel
+* WithCancel 继承一个context, 返回新的ctx, 和cancel
 * WithTimeout, 设置一个时间段之后超时
 * WithDeadline, 设置截止时间
 * Background, TODO 创建一个空的ctx
@@ -102,7 +106,7 @@ context的重要性不容置疑, 只要用过grpc或者sql的包, 都会发现�
  */
 ```
  ## 三、WithValue和Value--存值和取值的流程
- 从源代码上看, 每次调用WithValue就是新建一个链表的node. 每次调查是O(n)次.
+ 从源代码上看, 每次调用```WithValue(ctx, key, val)```就是新建一个链表的node. 每次通用```ctx.Value(key名)```查找是O(n)次.
  ```go
  /*
                                                  ┌───────┐
@@ -142,7 +146,8 @@ context的重要性不容置疑, 只要用过grpc或者sql的包, 都会发现�
         if !reflectlite.TypeOf(key).Comparable() {
                 panic("key is not comparable")
         }   
-        // 把爸爸链点包起来
+        // 把爸爸节点包起来, 使用Context接口指向
+        // 这里和常规的写法不一样, 一般是Next常量, 还是那个姿势
         return &valueCtx{parent, key, val}
 }
 
