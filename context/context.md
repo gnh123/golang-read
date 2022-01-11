@@ -190,7 +190,8 @@ func (c *valueCtx) Value(key interface{}) interface{} {
 
  ## context 父ctx影响子ctx的做法
  ### 核心代码
- 每个ctx都有一个c.dhildren. 记录了它的所有子ctx. 只要父cancel了. 会尝试优先遍历把孩子都cancel掉
+ 每个ctx都有一个c.dhildren, 类型是map. 记录了它的所有子ctx. 只要父cancel了. 会深度优先遍历把孩子都cancel掉.
+ 从这个角度看, 像一棵树. 当然parent和child 如果是一脉单传, 那它又一个链表
 
  ```go
  c.children
