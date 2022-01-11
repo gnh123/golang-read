@@ -106,7 +106,7 @@ context的重要性不容置疑, 只要用过grpc或者sql的包, 都会发现�
  */
 ```
  ## 三、WithValue和Value--存值和取值的流程
- 从源代码上看, 每次调用```WithValue(ctx, key, val)```就是新建一个链表的node. 每次通用```ctx.Value(key名)```查找是O(n)次.
+ 从源代码上看, 每次调用```WithValue(ctx, key, val)```就是新建一个链表的node. 每次通过```ctx.Value(key名)```函数查找key, 效率是O(n)次.
  ```go
  /*
                                                  ┌───────┐
