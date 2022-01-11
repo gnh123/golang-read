@@ -187,3 +187,66 @@ func (c *valueCtx) Value(key interface{}) interface{} {
 }
 
  ```
+
+ ## context 父ctx影响子ctx的做法
+ ### 核心代码
+ 每个ctx都有一个c.dhildren. 记录了它的所有子ctx. 只要父cancel了. 会尝试优先遍历把孩子都cancel掉
+
+ ```go
+ c.children
+ ```
+
+ ```go
+ /*
+                            ┌──────┐
+                            │      │
+    ┌──────────────┬────────┤parent├─────────────┬────────────┐
+    │              ├────────┴─────┬┴─────────────┤            │
+    │              │              │              │            │
+    │              │              │              │            │
+    │              │              │              │            │
+    │              │              │              │            │
+    │              │              │              │            │
+    │              │              │              │            │
+    │              │              │              │            │
+┌───▼───┐      ┌───▼───┐      ┌───▼────┐   ┌─────▼──┐   ┌─────▼──┐
+│       │      │       │      │        │   │        │   │        │
+│child  │      │child  │      │child   │   │ child  │   │child   │
+└───────┘      └───────┘      └────────┘   └────────┘   └────────┘
+ */
+ ```
+
+ ```go
+ // cancel closes c.done, cancels each of c's children, and, if
+// removeFromParent is true, removes c from its parent's children.
+func (c *cancelCtx) cancel(removeFromParent bool, err error) {
+        if err == nil {
+                panic("context: internal error: missing cancel error")
+        }
+        c.mu.Lock()
+        if c.err != nil {
+                c.mu.Unlock()
+                return // already canceled
+        }
+        c.err = err
+        // TODO, 理下为啥要这么做
+        d, _ := c.done.Load().(chan struct{})
+        if d == nil {          
+                c.done.Store(closedchan)
+        } else {               
+                close(d)       
+        }
+        // 这里递归遍历
+        for child := range c.children {
+                // NOTE: acquiring the child's lock while holding parent's lock.
+                child.cancel(false, err)
+        }
+        c.children = nil
+        c.mu.Unlock()
+
+        if removeFromParent {
+                removeChild(c.Context, c)
+        }
+}
+
+ ```
