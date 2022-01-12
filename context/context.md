@@ -188,10 +188,10 @@ func (c *valueCtx) Value(key interface{}) interface{} {
 
  ```
 
- ## context 父ctx影响子ctx的做法
+ ## context 父ctx影响子ctx的做法--cancel函数
  ### 核心代码
- 每个ctx都有一个c.dhildren, 类型是map. 记录了它的所有子ctx. 只要父cancel了. 会深度优先遍历把孩子都cancel掉.
- 从这个角度看, 像一棵树. 当然parent和child 如果是一脉单传, 那它又一个链表
+ 每个ctx都有一个c.children, 类型是map. 记录了它的所有子ctx. 只要父cancel了. 会深度优先遍历把孩子都cancel掉.
+ 从这个角度看, 像一棵树. 当然parent和child 如果是一脉单传, 那它又是一个链表
 
  ```go
  c.children
@@ -230,7 +230,7 @@ func (c *cancelCtx) cancel(removeFromParent bool, err error) {
                 return // already canceled
         }
         c.err = err
-        // TODO, 理下为啥要这么做
+        // TODO(check), 如果不调用Done()方法, 直接cancel会进这个流程
         d, _ := c.done.Load().(chan struct{})
         if d == nil {          
                 c.done.Store(closedchan)
@@ -251,3 +251,55 @@ func (c *cancelCtx) cancel(removeFromParent bool, err error) {
 }
 
  ```
+
+## context-propagateCancel 函数
+```go
+func propagateCancel(parent Context, child canceler) {
+        // 这里的parent只有context.TODO()或者
+        // context.Background() 创建出来的会返回nil
+        // 自定义context的除外
+        done := parent.Done()
+        if done == nil {
+                return // parent is never canceled
+        }
+        
+        // 发现parent被销毁了
+        // 直接把儿子也销毁, 这里的递归调用
+        select {
+        case <-done:
+                // parent is already canceled
+                child.cancel(false, parent.Err())
+                return 
+        default:        
+        }                       
+        
+        // 从接口里面取到父context的具体实现类型
+        if p, ok := parentCancelCtx(parent); ok {
+                p.mu.Lock()
+                if p.err != nil {
+                        // 发现被cancel, 把后代都cancel了
+                        // parent has already been canceled
+                        child.cancel(false, p.err)
+                } else {
+                        // 如果p.children是空
+                        // 给map赋个值, 惰性初始化的写法, 让分配推迟到发生的那一该再分配内存
+                        if p.children == nil {
+                                p.children = make(map[canceler]struct{})
+                        }       
+                        p.children[child] = struct{}{}
+                }       
+                p.mu.Unlock()
+        } else {
+                // 自定义实现的context或者parent已经被cancel的进这里
+                atomic.AddInt32(&goroutines, +1)
+                go func() {
+                        select {
+                        case <-parent.Done():
+                                child.cancel(false, parent.Err())
+                        case <-child.Done():
+                        }
+                }()
+        }
+}
+
+```
