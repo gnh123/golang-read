@@ -269,7 +269,7 @@ func parentCancelCtx(parent Context) (*cancelCtx, bool) {
         }   
 
 	// 超级牛逼的亮点, 以前的context是不建议内嵌的. 
-	// 这种写法, 内嵌官方的context问题也没问题
+	// 这种写法, 内嵌官方的context也没问题
         p, ok := parent.Value(&cancelCtxKey).(*cancelCtx)
         if !ok {
                 return nil, false
