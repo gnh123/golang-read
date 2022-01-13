@@ -251,7 +251,37 @@ func (c *cancelCtx) cancel(removeFromParent bool, err error) {
 }
 
  ```
+## parentCancelCtx 函数
+```go
+// &cancelCtxKey is the key that a cancelCtx returns itself for.
+var cancelCtxKey int 
 
+// parentCancelCtx returns the underlying *cancelCtx for parent.
+// It does this by looking up parent.Value(&cancelCtxKey) to find
+// the innermost enclosing *cancelCtx and then checking whether
+// parent.Done() matches that *cancelCtx. (If not, the *cancelCtx
+// has been wrapped in a custom implementation providing a
+// different done channel, in which case we should not bypass it.)
+func parentCancelCtx(parent Context) (*cancelCtx, bool) {
+        done := parent.Done()
+        if done == closedchan || done == nil {
+                return nil, false
+        }   
+
+	// 超级牛逼的亮点, 以前的context是不建议内嵌的. 
+	// 这种写法, 内嵌官方的context问题也没问题
+        p, ok := parent.Value(&cancelCtxKey).(*cancelCtx)
+        if !ok {
+                return nil, false
+        }   
+        pdone, _ := p.done.Load().(chan struct{})
+        if pdone != done {
+                return nil, false
+        }   
+        return p, true
+}
+
+```
 ## context-propagateCancel 函数
 ```go
 func propagateCancel(parent Context, child canceler) {
@@ -303,3 +333,75 @@ func propagateCancel(parent Context, child canceler) {
 }
 
 ```
+
+### 自定义context会进else部分
+证实下else的部分逻辑
+```go
+type myContext struct {
+}
+
+func (c *myContext) Deadline() (deadline time.Time, ok bool) { 
+        return
+}
+
+func (c *myContext) Done() <-chan struct{} {
+        return make(chan struct{})      
+}
+
+func (c *myContext) Err() error {
+        return nil
+}
+
+func (*myContext) Value(key interface{}) interface{} {
+        return nil
+}
+
+func main() {
+        ctx := context.TODO()
+
+        _, cancel := context.WithCancel(ctx)
+        defer cancel()
+
+        _, cancel = context.WithCancel(&myContext{})
+        defer cancel()
+}
+```
+## context-WithDeadline函数解析
+```go
+func WithDeadline(parent Context, d time.Time) (Context, CancelFunc) {
+        if parent == nil {
+                panic("cannot create context from nil parent")
+        }   
+        // 如果父ctx超时时间早于子ctx.
+        // 由于ctx的cancel是自上而下地取消的. 所以子ctx返回一个普通的带的cancel的就行
+        if cur, ok := parent.Deadline(); ok && cur.Before(d) {
+                // The current deadline is already sooner than the new one.
+                return WithCancel(parent)
+        }
+        // 构建timerCtx结构   
+        c := &timerCtx{
+                cancelCtx: newCancelCtx(parent),
+                deadline:  d,  
+        } 
+          
+        propagateCancel(parent, c)
+        // 如果时间已到, 直接cancel. 然后返回
+        dur := time.Until(d)
+        if dur <= 0 { 
+                c.cancel(true, DeadlineExceeded) // deadline has already passed
+                return c, func() { c.cancel(false, Canceled) }
+        }
+        c.mu.Lock()
+        defer c.mu.Unlock()
+        // 再做个检查, 证明这个ctx没被取消
+        // 如果ctx被cancel了, c.err就会有值
+        if c.err == nil {
+                c.timer = time.AfterFunc(dur, func() {
+                        c.cancel(true, DeadlineExceeded)
+                })  
+        }   
+        return c, func() { c.cancel(true, Canceled) }
+}
+```
+## context最佳实践
+1. TODO WithValue的效率
