@@ -404,4 +404,16 @@ func WithDeadline(parent Context, d time.Time) (Context, CancelFunc) {
 }
 ```
 ## context最佳实践
-1. TODO WithValue的效率
+1. 传压测数据来看WithValue, 如果Value很多, 可以做个聚合. 减少创建链表中的节点数
+```console
+goos: darwin
+goarch: amd64
+pkg: test
+cpu: Intel(R) Core(TM) i7-1068NG7 CPU @ 2.30GHz
+BenchmarkWithValue-8       	 2927892	       420.0 ns/op
+BenchmarkWithValue_One-8   	14081560	        85.99 ns/op
+PASS
+ok  	test	3.062s
+
+```
+2. 以前的context是不建议内嵌的. 现在没这个限制, 为了保持代码兼容性, 可以继续保持这一点
