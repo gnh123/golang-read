@@ -142,16 +142,22 @@ func As(err error, target interface{}) bool {
                 panic("errors: *target must be interface or implement error")
         }
         for err != nil {
-		// 检查下有没有实现这个类型
+		// 检查下是这个类型实现的error接口
                 if reflectlite.TypeOf(err).AssignableTo(targetType) {
                         val.Elem().Set(reflectlite.ValueOf(err))
                         return true
                 }
+
+                // 如果传递过来的接口, 自己实现了As接口, 直接使用As接口
                 if x, ok := err.(interface{ As(interface{}) bool }); ok && x.As(target) {
                         return true
                 }
+                // 解包
                 err = Unwrap(err)
         }
         return false
 }
 ```
+
+## 最佳实践
+* err的包装层次不易过多, 每包装一次, 他是在错误链表中不停加节点
