@@ -89,6 +89,7 @@ fmt.Println(errors.Unwrap(e2) == e)
 
 ## 三、```Is```接口
 遍历错误链表, 判断你的错误是否在这个链中, 遇到第一个匹配成功的就返回
+这里还是看下图1. Is 就是for循环遍历链表找err
 ```go
 func Is(err, target error) bool {
         if target == nil {
@@ -116,5 +117,41 @@ func Is(err, target error) bool {
                         return false
                 }
         }
+}
+```
+
+## 四、```As```接口
+```go
+func As(err error, target interface{}) bool {
+        // target空值panic
+        if target == nil {
+                panic("errors: target cannot be nil")
+        }   
+        // 先反射
+        val := reflectlite.ValueOf(target)
+        // 拿到类型
+        typ := val.Type()
+        // 不是指针或者是有类型但是是nil指针报错
+        // 比如(*x)(nil)这种写法就会进val.IsNil(), 请看当前目录下的isnil.go文件, 运行下
+        if typ.Kind() != reflectlite.Ptr || val.IsNil() {
+                panic("errors: target must be a non-nil pointer")
+        }
+        // 再判断解引用之后的类型    
+        targetType := typ.Elem()
+        if targetType.Kind() != reflectlite.Interface && !targetType.Implements(errorType) {
+                panic("errors: *target must be interface or implement error")
+        }
+        for err != nil {
+		// 检查下有没有实现这个类型
+                if reflectlite.TypeOf(err).AssignableTo(targetType) {
+                        val.Elem().Set(reflectlite.ValueOf(err))
+                        return true
+                }
+                if x, ok := err.(interface{ As(interface{}) bool }); ok && x.As(target) {
+                        return true
+                }
+                err = Unwrap(err)
+        }
+        return false
 }
 ```
