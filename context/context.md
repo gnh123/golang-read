@@ -357,11 +357,7 @@ func (*myContext) Value(key interface{}) interface{} {
 }
 
 func main() {
-        ctx := context.TODO()
-
-        _, cancel := context.WithCancel(ctx)
-        defer cancel()
-
+ 
         _, cancel = context.WithCancel(&myContext{})
         defer cancel()
 }
