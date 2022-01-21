@@ -320,7 +320,8 @@ func propagateCancel(parent Context, child canceler) {
                 }       
                 p.mu.Unlock()
         } else {
-                // 自定义实现的context或者parent已经被cancel的进这里
+                // 自定义实现的context, 并且其中Value方法不使用(标准库)context.Value方法返回
+                // parent已经被cancel的进这里
                 atomic.AddInt32(&goroutines, +1)
                 go func() {
                         select {
