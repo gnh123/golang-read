@@ -145,3 +145,68 @@ func (b *Builder) WriteRune(r rune) (int, error) {
         return n, nil
 }
 ```
+
+### 六、Grow函数
+grow函数, 用于扩容
+```go
+// grow copies the buffer to a new, larger buffer so that there are at least n
+// bytes of capacity beyond len(b.buf).
+func (b *Builder) grow(n int) {
+        buf := make([]byte, len(b.buf), 2*cap(b.buf)+n)
+        copy(buf, b.buf)
+        b.buf = buf
+}
+
+// Grow grows b's capacity, if necessary, to guarantee space for
+// another n bytes. After Grow(n), at least n bytes can be written to b
+// without another allocation. If n is negative, Grow panics.
+func (b *Builder) Grow(n int) {
+        b.copyCheck()
+        if n < 0 { 
+                panic("strings.Builder.Grow: negative count")
+        }
+        // 剩余容量 < 需要装载的容量
+        if cap(b.buf)-len(b.buf) < n { 
+                b.grow(n)
+        }   
+}
+
+```
+
+### 七、精彩回顾
+#### 7.1 该包最核心的点
+strings.Builder库的思路建立在强制类型转换上
+
+
+#### 7.2 copyCheck函数的目的--捍卫string类型的定位
+
+copyCheck加上是为了捍卫string类型的定位, 具体可看(https://github.com/golang/go/issues/23084 )
+
+golang里面的string代表的是不可变的字符序列, 如果不加copyCheck, 值传递的情况, 那就变成了可变. 这和string所代表的定位不一样.
+
+可以试着去除```b.copyCheck()```, 运行下例子体会下.
+```go
+//This program:
+
+package main
+
+import (
+        "fmt"
+        "strings"
+)
+
+func main() {
+        var b1 strings.Builder
+        b1.Grow(3)
+        b2 := b1
+        b1.WriteString("foo")
+        s := b1.String()
+        fmt.Printf("string before patching: %#v\n", s)
+        b2.WriteString("bar")
+        fmt.Printf("string after patching: %#v\n", s)
+}
+//Prints:
+
+//string before patching: "foo"
+//string after patching: "bar"
+```
