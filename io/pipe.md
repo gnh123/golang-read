@@ -46,8 +46,8 @@ func (p *pipe) Write(b []byte) (n int, err error) {
         }
 
         // 1.先把[]byte写到wrCh chan里面
-        // 2.然后检查下Read函数, 消费的具体字节数, 只有消费完Write的buffer才会退出这个for循环
-        // 3.如果是Write一个空的[]byte, 包证Read函数会被调用一次, 这里使用once变量
+        // 2.然后检查下Read函数, 消费的具体字节数, 只有消费者(Read)消费完Write的buffer才会退出这个for循环
+        // 3.如果是Write一个空的[]byte, 保证Read函数会被调用一次, 这里使用once变量
         for once := true; once || len(b) > 0; once = false {
                 select {
                     
@@ -76,7 +76,8 @@ func (p *pipe) Read(b []byte) (n int, err error) {
         }
          
         // 1.读取buffer 
-        // 2.这里比较有意思的是, 通过p.rdCh会通知写的go程, 实际的消费数, 为什么这样做: 如果接收的[]byte小于发生的buffer, 也可以正确消费完
+        // 2.这里比较有意思的是, 通过p.rdCh会通知Write的go程, 及通知生产者, 为什么这样做?
+        //  如果接收的[]byte小于生产者送过来的buffer, 也可以正确消费完
         select {
         case bw := <-p.wrCh:// 见1
                 nr := copy(b, bw)
