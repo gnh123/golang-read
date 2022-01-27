@@ -88,3 +88,62 @@ func (p *pipe) Read(b []byte) (n int, err error) {
         }
 } 
 ```
+
+## 三、通知Read结束流程(通知消费者退出)
+### w.Close流程
+1. 先关闭写w.Close()  
+2. w.Close里面套的是CloswWithError  
+3. CloseWithError套的是CloseWrite  
+4. 先保存错误 
+5. 然后关闭Chan, chan重复关闭会panic, 这里用once包下
+### Read接口
+6. ```case <-p.done:``` 这里会返回错误, 通过p.readCloseError()获取错误
+```go
+// 见1
+func (w *PipeWriter) Close() error {
+        return w.CloseWithError(nil)
+}
+
+// 见2
+func (w *PipeWriter) CloseWithError(err error) error {
+        return w.p.CloseWrite(err)
+} 
+
+// 见3
+func (p *pipe) CloseWrite(err error) error {
+        if err == nil { // 这里是关键, 标准库里面很多地方是忽略io.EOF的
+                err = EOF
+        }
+        p.werr.Store(err) // 见4
+        p.once.Do(func() { close(p.done) })// 见5
+        return nil
+}
+
+func (p *pipe) readCloseError() error {
+        rerr := p.rerr.Load()
+        if werr := p.werr.Load(); rerr == nil && werr != nil {
+                // 如果只调用Close关闭Write的pipe, 这里返回io.EOF
+                return werr
+        }
+        return ErrClosedPipe
+}
+```
+## 四, 难解代码解释
+在Write 函数里面有加销的超作, 很多人纳闷了, 我都用了chan, 干嘛还要加锁?  
+这是因为: Write是支持分段传输[]byte的. 假如有多个go程调用Write, 不加锁内容就错了.
+```go
+func (p *pipe) Write(b []byte) (n int, err error) {
+        select {
+        case <-p.done:
+                return 0, p.writeCloseError()
+        default:
+                p.wrMu.Lock()
+                defer p.wrMu.Unlock()
+        }
+        // 下面的代码隐去
+}
+```
+### 最佳实践
+* 如果有多个程传递[]byte流的需要, 可以使用io.Pipe
+* 关闭生产者, 消费者可以感知到
+* 关闭消费者, 生产者可以感知到
