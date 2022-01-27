@@ -129,7 +129,7 @@ func (p *pipe) readCloseError() error {
 }
 ```
 ## 四, 难解代码解释
-在Write 函数里面有加销的超作, 很多人纳闷了, 我都用了chan, 干嘛还要加锁?  
+在Write 函数里面有加锁的超作, 很多人纳闷了, 我都用了chan, 干嘛还要加锁?  
 这是因为: Write是支持分段传输[]byte的. 假如有多个go程调用Write, 不加锁内容就错了.
 ```go
 func (p *pipe) Write(b []byte) (n int, err error) {
@@ -144,6 +144,6 @@ func (p *pipe) Write(b []byte) (n int, err error) {
 }
 ```
 ### 最佳实践
-* 如果有多个程传递[]byte流的需要, 可以使用io.Pipe
+* 如果有多个程传递[]byte流的需求, 可以使用io.Pipe
 * 关闭生产者, 消费者可以感知到
 * 关闭消费者, 生产者可以感知到
