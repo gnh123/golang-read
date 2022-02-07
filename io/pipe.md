@@ -144,6 +144,6 @@ func (p *pipe) Write(b []byte) (n int, err error) {
 }
 ```
 ### 最佳实践
-* 如果有多个程传递[]byte流的需求, 可以使用io.Pipe
+* 如果有多个go程传递[]byte流的需求, 可以使用io.Pipe
 * 关闭生产者, 消费者可以感知到
 * 关闭消费者, 生产者可以感知到

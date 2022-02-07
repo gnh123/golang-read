@@ -50,6 +50,8 @@ func ReadFull(r Reader, buf []byte) (n int, err error) {
 ```
 ## 三、```io.Copy``` 系列
 ### 3.1 ```copyBuffer```接口
+```copyBuffer```对外的接口有```io.Copy```和```io.CopyBuffer```
+
 1. 如果src里面包含WriterTo接口, 直接调用
 2. 如果dst里面包含ReaderFrom接口, 直接调用
 3. 如果buffer为空, 给个32KB长度, 如果实现LimitedReader接口就取最小值(min(size, l.N))
@@ -110,3 +112,42 @@ func copyBuffer(dst Writer, src Reader, buf []byte) (written int64, err error) {
 }       
 
 ```
+
+##  四 ```io.LimitedReader``` 限制读数据
+1. LimitReader是构造函数, 对一个io.Reader最多读多少数据
+2. LimitedReader是结构体的原型
+3. 如果被读数据```len(p)```大于最多读取```l.N```的量, 则只读l.N的量
+4. 读数据, 递减```l.N```的值
+
+
+// 见1
+// LimitReader returns a Reader that reads from r
+// but stops with EOF after n bytes.
+// The underlying implementation is a *LimitedReader.
+func LimitReader(r Reader, n int64) Reader { return &LimitedReader{r, n} }
+
+// A LimitedReader reads from R but limits the amount of
+// data returned to just N bytes. Each call to Read
+// updates N to reflect the new amount remaining.
+// Read returns EOF when N <= 0 or when the underlying R returns EOF.
+type LimitedReader struct {
+        R Reader // underlying reader
+        N int64  // max bytes remaining
+}
+
+func (l *LimitedReader) Read(p []byte) (n int, err error) {
+	// 读结束
+        if l.N <= 0 {
+                return 0, EOF
+        }
+	// 见3
+        if int64(len(p)) > l.N {
+                p = p[0:l.N]
+        }
+	// 见4
+        n, err = l.R.Read(p)
+        l.N -= int64(n)
+        return
+}
+
+## 五```io.SectionReader``` TODO
