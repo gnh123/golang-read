@@ -119,7 +119,7 @@ func copyBuffer(dst Writer, src Reader, buf []byte) (written int64, err error) {
 3. 如果被读数据```len(p)```大于最多读取```l.N```的量, 则只读l.N的量
 4. 读数据, 递减```l.N```的值
 
-
+```go
 // 见1
 // LimitReader returns a Reader that reads from r
 // but stops with EOF after n bytes.
@@ -149,5 +149,89 @@ func (l *LimitedReader) Read(p []byte) (n int, err error) {
         l.N -= int64(n)
         return
 }
+```
+## 五、```io.SectionReader```
+1. ```s.off >= s.limit``` 说明数据都读完了
+2. 读min(len(p), s.limit)长度的数据
+3. 读数据, 并且更新```s.off```
+```go
+// 初始化函数
+func NewSectionReader(r ReaderAt, off int64, n int64) *SectionReader {
+    return &SectionReader{r, off, off, off + n}
+}
 
-## 五```io.SectionReader``` TODO
+// SectionReader implements Read, Seek, and ReadAt on a section
+// of an underlying ReaderAt.
+type SectionReader struct {
+    r     ReaderAt //数据源
+    base  int64    //起始地址
+    off   int64    //当前位置
+    limit int64    //最多读多少数据
+}
+
+func (s *SectionReader) Read(p []byte) (n int, err error) {
+    // 见1
+    if s.off >= s.limit {
+        return 0, EOF 
+    } 
+    // 见2
+    if max := s.limit - s.off; int64(len(p)) > max {
+        p = p[0:max]
+    }
+    // 见3 
+    n, err = s.r.ReadAt(p, s.off)
+    s.off += int64(n)
+    return
+}
+```
+1. 设置SeekStart时, 就把offset转成从base处计算的绝对值
+2. 设置SeekCurrent时, 就把offset转成从s.off当前处计算的绝对值
+3. 设置SeekEnd时, 就把offset转成从s.limit(结尾处)计算的绝对值, 一般会使用负值
+```go
+var errWhence = errors.New("Seek: invalid whence")
+var errOffset = errors.New("Seek: invalid offset")
+
+func (s *SectionReader) Seek(offset int64, whence int) (int64, error) {
+    switch whence {
+    default:
+        // 异常值判断
+        return 0, errWhence
+    case SeekStart:
+        //见1
+        offset += s.base
+    case SeekCurrent:
+        //见2
+        offset += s.off
+    case SeekEnd:
+        //见3
+        offset += s.limit
+    }
+    // 异常值判断
+    if offset < s.base {
+        return 0, errOffset
+    }
+    // 重置s.off
+    s.off = offset
+    // 返回偏移的长度
+    return offset - s.base, nil
+}
+
+func (s *SectionReader) ReadAt(p []byte, off int64) (n int, err error) {
+    if off < 0 || off >= s.limit-s.base {
+        return 0, EOF
+    }
+    off += s.base
+    if max := s.limit - off; int64(len(p)) > max {
+        p = p[0:max]
+        n, err = s.r.ReadAt(p, off)
+        if err == nil {
+            err = EOF
+        }
+        return n, err
+    }
+    return s.r.ReadAt(p, off)
+}
+
+// Size returns the size of the section in bytes.
+func (s *SectionReader) Size() int64 { return s.limit - s.base }
+```

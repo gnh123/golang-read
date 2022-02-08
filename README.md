@@ -6,3 +6,5 @@ golang源代码阅读
 - [errors](./errors/errors.md)
 - strings
     - [builder](./strings/builder.md)
+- io
+    - [pipe](./io/pipe.md)
