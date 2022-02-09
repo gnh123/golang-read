@@ -184,9 +184,9 @@ func (s *SectionReader) Read(p []byte) (n int, err error) {
     return
 }
 ```
-1. 设置SeekStart时, 就把offset转成从base处计算的绝对值
-2. 设置SeekCurrent时, 就把offset转成从s.off当前处计算的绝对值
-3. 设置SeekEnd时, 就把offset转成从s.limit(结尾处)计算的绝对值, 一般会使用负值
+1. 设置SeekStart时, 就把offset转成从base处计算的绝对值, SeekStart++++offset
+2. 设置SeekCurrent时, 就把offset转成从s.off当前处计算的绝对值, SeekStart++++++offset
+3. 设置SeekEnd时, 就把offset转成从s.limit(结尾处)计算的绝对值, 一般会使用负值, SeekEnd+++++offset
 ```go
 var errWhence = errors.New("Seek: invalid whence")
 var errOffset = errors.New("Seek: invalid offset")
@@ -217,12 +217,13 @@ func (s *SectionReader) Seek(offset int64, whence int) (int64, error) {
 }
 
 func (s *SectionReader) ReadAt(p []byte, off int64) (n int, err error) {
+        //off小于0, 或者off超过剩下的距离, 直接认为结束
     if off < 0 || off >= s.limit-s.base {
         return 0, EOF
     }
-    off += s.base
+    off += s.base//把相对值, 转对绝对值
     if max := s.limit - off; int64(len(p)) > max {
-        p = p[0:max]
+        p = p[0:max]//取最小可读长度
         n, err = s.r.ReadAt(p, off)
         if err == nil {
             err = EOF
@@ -234,4 +235,51 @@ func (s *SectionReader) ReadAt(p []byte, off int64) (n int, err error) {
 
 // Size returns the size of the section in bytes.
 func (s *SectionReader) Size() int64 { return s.limit - s.base }
+```
+
+## 六、```TeeReader```
+TeeReader函数有点意思, 会旁路一个io.Writer出去. 当io.Reader被调用时, io.Writer得在得到数据
+```go
+func TeeReader(r Reader, w Writer) Reader {
+    return &teeReader{r, w}
+}
+
+type teeReader struct {
+    r Reader
+    w Writer
+}
+
+func (t *teeReader) Read(p []byte) (n int, err error) {
+    n, err = t.r.Read(p)
+    if n > 0 { 
+        if n, err := t.w.Write(p[:n]); err != nil {
+            return n, err 
+        }   
+    }   
+    return
+}
+
+```
+
+## 七、```Discard``` 黑洞
+要丢弃一些数据的时候使用
+
+```go
+// Discard is a Writer on which all Write calls succeed
+// without doing anything.
+var Discard Writer = discard{}
+
+type discard struct{}
+
+// discard implements ReaderFrom as an optimization so Copy to
+// io.Discard can avoid doing unnecessary work.
+var _ ReaderFrom = discard{}
+
+func (discard) Write(p []byte) (int, error) {
+    return len(p), nil
+}
+
+func (discard) WriteString(s string) (int, error) {
+    return len(s), nil
+}
 ```
