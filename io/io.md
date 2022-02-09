@@ -238,7 +238,7 @@ func (s *SectionReader) Size() int64 { return s.limit - s.base }
 ```
 
 ## 六、```TeeReader```
-TeeReader函数有点意思, 会旁路一个io.Writer出去. 当io.Reader被调用时, io.Writer得在得到数据
+TeeReader函数有点意思, 会旁路一个io.Writer出去. 当io.Reader被调用时, io.Writer就会得到数据
 ```go
 func TeeReader(r Reader, w Writer) Reader {
     return &teeReader{r, w}
