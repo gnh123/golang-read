@@ -8,4 +8,4 @@ golang源代码阅读
     - [builder](./strings/builder.md)
 - io
     - [pipe](./io/pipe.md)
-    - [pipe](./io/io.md)
+    - [io](./io/io.md)
