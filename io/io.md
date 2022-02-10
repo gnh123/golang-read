@@ -282,4 +282,80 @@ func (discard) Write(p []byte) (int, error) {
 func (discard) WriteString(s string) (int, error) {
     return len(s), nil
 }
+
+var blackHolePool = sync.Pool{
+    New: func() interface{} {
+        b := make([]byte, 8192)
+        return &b
+    },
+}
+
+// ReadFrom没人传递[]byte过来, 需要自己创建
+// 所有这里使用sync.Pool加速下
+func (discard) ReadFrom(r Reader) (n int64, err error) {
+    bufp := blackHolePool.Get().(*[]byte)
+    readSize := 0
+    for {
+        readSize, err = r.Read(*bufp)
+        n += int64(readSize)
+        if err != nil {
+            blackHolePool.Put(bufp)
+            if err == EOF {
+                return n, nil
+            }
+            return
+        }
+    }
+}
+
+```
+
+## 八、```io.NopCloser```
+io.NopCloser, 可以把io.Reader接口转成io.ReadCloser接口
+```go
+// NopCloser returns a ReadCloser with a no-op Close method wrapping
+// the provided Reader r.
+func NopCloser(r Reader) ReadCloser {
+    return nopCloser{r}
+}
+
+type nopCloser struct {
+    Reader
+}
+
+func (nopCloser) Close() error { return nil }
+
+
+```
+
+## 九、```io.ReadAll```
+ReadAll读取所有的内容到内存里面
+1. 初始化一块512字节的内存
+2. 内存用光了
+3. 直接使用append扩容, 这里没有使用malloc+copy做, 是因为append底层有类型的逻辑
+4. 读取内容 ```r.Read(b[len(b):cap(b)])```
+5. 重置[]byte的len值
+```go
+func ReadAll(r Reader) ([]byte, error) {
+        // 见1
+    b := make([]byte, 0, 512)
+    for {
+            //见2
+        if len(b) == cap(b) {
+                // 见3
+            // Add more capacity (let append pick how much).
+            b = append(b, 0)[:len(b)]
+        }
+        // 见4
+        n, err := r.Read(b[len(b):cap(b)])
+        // 见5
+        b = b[:len(b)+n]
+        if err != nil {
+            if err == EOF {
+                err = nil
+            }
+            return b, err
+        }
+    }
+}
 ```
