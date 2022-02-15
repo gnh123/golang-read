@@ -1,11 +1,38 @@
 package main
 
 import (
-	"bytes"
-	"errors"
 	"io"
-	"log"
+	"runtime"
+	"strings"
+	"time"
 )
+
+type multiReader struct {
+	readers []io.Reader
+}
+
+func (mr *multiReader) Read(p []byte) (n int, err error) {
+	for len(mr.readers) > 0 {
+		n, err = mr.readers[0].Read(p)
+		if n > 0 || err != io.EOF {
+			if err == io.EOF {
+				// Don't return EOF yet. There may be more bytes
+				// in the remaining readers.
+				mr.readers[0] = nil
+				err = nil
+			}
+			return
+		}
+		mr.readers = mr.readers[1:]
+	}
+	return 0, io.EOF
+}
+
+func MultiReader(readers ...io.Reader) io.Reader {
+	r := make([]io.Reader, len(readers))
+	copy(r, readers)
+	return &multiReader{r}
+}
 
 type errorReader struct {
 	err error
@@ -17,30 +44,18 @@ func (er errorReader) Read(p []byte) (n int, err error) {
 
 func main() {
 	// Read 50 bytes then produce an error
-	contents := "12345678901234567890123456789012345678901234567890"
-	er := &errorReader{errors.New("potato")}
-	in := io.MultiReader(bytes.NewBufferString(contents), er)
+	mr1 := io.MultiReader(strings.NewReader("def"), strings.NewReader("ghi"))
+	mr2 := io.MultiReader(strings.NewReader("abc"), mr1)
 
-	// Peek a byte from the reader then reconstruct it
-	buf := make([]byte, 1)
-	n, err := io.ReadFull(in, buf)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("Peeked %q", buf[:n])
-	in = io.MultiReader(bytes.NewReader(buf[:n]), in)
+	io.ReadFull(mr2, make([]byte, 4))
 
-	buf2 := make([]byte, 32768)
-	for {
-		n, err = in.Read(buf2)
-		log.Printf("Read %q, err=%v, len=%d", buf2[:n], err, n)
-		if err != nil {
-			break
-		}
-	}
+	runtime.GC()
+	time.Sleep(time.Second)
 
-	// One more read
-	buf3 := make([]byte, 1)
-	n, err = in.Read(buf3)
-	log.Printf("Read %q, err=%v, len=%d", buf3[:n], err, n)
+	io.ReadFull(mr1, make([]byte, 4))
+
+	runtime.GC()
+	time.Sleep(time.Second)
+
+	io.ReadFull(mr2, make([]byte, 3))
 }

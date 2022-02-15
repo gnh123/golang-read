@@ -6,9 +6,9 @@ io.MultiReader 聚合多个io.Reader
 io.MultiWriter 聚合多个io.Writer
 
 这是一种很好的设计模式, 类似shell的管道一样.把本来不相容的类型, 转成常见的接口
-
+## 一、```io.MultiReader```
 1. MultiReader, 把多个io.Reader整成一个io.Reader
-2. 
+2. MulitReader是按顺序把第一个的io.Reader先读取才会读取第二个.
 ```go
 type eofReader struct{}
 
@@ -29,6 +29,7 @@ func (mr *multiReader) Read(p []byte) (n int, err error) {
 				continue
 			}
 		}
+		//按顺序读, 先读完才会读取后面的io.Reader
 		n, err = mr.readers[0].Read(p)
 		if err == EOF {
 			// Use eofReader instead of nil to avoid nil panic
@@ -58,6 +59,7 @@ func MultiReader(readers ...Reader) Reader {
 }
 ```
 
+```go
 type multiWriter struct {
 	writers []Writer
 }
@@ -117,3 +119,4 @@ func MultiWriter(writers ...Writer) Writer {
 	}
 	return &multiWriter{allWriters}
 }
+```
