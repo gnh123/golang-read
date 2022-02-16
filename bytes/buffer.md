@@ -75,3 +75,38 @@ func (b *Buffer) String() string {
 	return string(b.buf[b.off:])
 }
 ```
+
+## 五、```Len```和```Cap```
+1. Len就是底层slice的长度减去off的长度得来的.
+2. Cap就返回底层slice的长度
+```go
+// empty reports whether the unread portion of the buffer is empty.
+func (b *Buffer) empty() bool { return len(b.buf) <= b.off }
+
+// Len returns the number of bytes of the unread portion of the buffer;
+// b.Len() == len(b.Bytes()).
+// 见1
+func (b *Buffer) Len() int { return len(b.buf) - b.off }
+
+// Cap returns the capacity of the buffer's underlying byte slice, that is, the
+// total space allocated for the buffer's data.
+// 见2
+func (b *Buffer) Cap() int { return cap(b.buf) }
+```
+
+## 六、```Truncate```
+1. 如果传递为0, 整个bytes.Buffer的数据就会被重置
+2. 
+```go
+func (b *Buffer) Truncate(n int) {
+	if n == 0 {
+		b.Reset()
+		return
+	}
+	b.lastRead = opInvalid
+	if n < 0 || n > b.Len() {
+		panic("bytes.Buffer: truncation out of range")
+	}
+	b.buf = b.buf[:b.off+n]
+}
+```
