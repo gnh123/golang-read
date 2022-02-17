@@ -96,9 +96,10 @@ func (b *Buffer) Cap() int { return cap(b.buf) }
 
 ## 六、```Truncate```
 1. 如果传递为0, 整个bytes.Buffer的数据就会被重置
-2. 
+2. 截断
 ```go
 func (b *Buffer) Truncate(n int) {
+	//见1
 	if n == 0 {
 		b.Reset()
 		return
@@ -107,6 +108,96 @@ func (b *Buffer) Truncate(n int) {
 	if n < 0 || n > b.Len() {
 		panic("bytes.Buffer: truncation out of range")
 	}
+	// 见2
 	b.buf = b.buf[:b.off+n]
+}
+```
+
+## 七、```Write```流程关键函数
+### 7.0 ```makeSlice```
+* 可以捕获异常的make函数
+```go
+func makeSlice(n int) []byte {
+	// If the make fails, give a known error.
+	defer func() {
+		if recover() != nil {
+			panic(ErrTooLarge)
+		}
+	}()
+	return make([]byte, n)
+}
+```
+### 7.1 ```tryGrowByReslice```函数
+1. 如果剩余长度还够的话
+1. 直接修改buf的Len成员变量
+1. 总结: tryGrowByReslice函数就是看是你实际能否放得下, 能放得下, 就直接修改.Len放数据
+```go
+func (b *Buffer) tryGrowByReslice(n int) (int, bool) {
+	// 见7.1 节的1
+	if l := len(b.buf); n <= cap(b.buf)-l {
+		// 见7.1的2
+		b.buf = b.buf[:l+n]
+		return l, true
+	}
+	return 0, false
+}
+```
+### 7.2 ```grow```函数
+1. buffer是空的情况, 重置下状态
+1. 如果实际空间满足, 返回可以写的位置
+1. 如果buf没有被初始化, 并且要写的值小于一个阈值, 统一都用这个值初始化
+1. 如果加上将要写入的数据得到总长度, 总长度<= 实际容量的一半, 把以前的数据从右边移到左边
+```go
+// grow grows the buffer to guarantee space for n more bytes.
+// It returns the index where bytes should be written.
+// If the buffer can't grow it will panic with ErrTooLarge.
+func (b *Buffer) grow(n int) int {
+	m := b.Len()
+	// 见1
+	// If buffer is empty, reset to recover space.
+	if m == 0 && b.off != 0 {
+		b.Reset()
+	}
+	// 见2
+	// Try to grow by means of a reslice.
+	if i, ok := b.tryGrowByReslice(n); ok {
+		return i
+	}
+	// 见3
+	if b.buf == nil && n <= smallBufferSize {
+		b.buf = make([]byte, n, smallBufferSize)
+		return 0
+	}
+	// 见4
+	c := cap(b.buf)
+	if n <= c/2-m {
+		// We can slide things down instead of allocating a new
+		// slice. We only need m+n <= c to slide, but
+		// we instead let capacity get twice as large so we
+		// don't spend all our time copying.
+		copy(b.buf, b.buf[b.off:])
+	} else if c > maxInt-c-n {
+		panic(ErrTooLarge)
+	} else {
+		// Not enough space anywhere, we need to allocate.
+		buf := makeSlice(2*c + n)
+		copy(buf, b.buf[b.off:])
+		b.buf = buf
+	}
+	// Restore b.off and len(b.buf).
+	b.off = 0
+	b.buf = b.buf[:m+n]
+	return m
+}
+```
+### 7.3 ```Write```函数
+```go
+func (b *Buffer) Write(p []byte) (n int, err error) {
+	b.lastRead = opInvalid
+	m, ok := b.tryGrowByReslice(len(p))
+	if !ok {
+		m = b.grow(len(p))
+	}
+	return copy(b.buf[m:], p), nil
 }
 ```
