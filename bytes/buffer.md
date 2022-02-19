@@ -150,7 +150,7 @@ func (b *Buffer) tryGrowByReslice(n int) (int, bool) {
 左边
 1. 如果实际的长度的2倍+需要写的长度  > 最长值. 直接panic, 如需扩容也是 2 * c + n的扩, 所以扩容之前先判断下. 这是重点操作
 1. 扩容数据 2 * c + n, 移动数据, 重置off变量
-1. 总结:grow就是分配空间的函数.
+1. 总结:grow就是分配空间的函数. 至少会腾出n的空间放数据, 返回可以写的位置
 ```go
 // grow grows the buffer to guarantee space for n more bytes.
 // It returns the index where bytes should be written.
@@ -277,7 +277,49 @@ func (b *Buffer) WriteRune(r rune) (n int, err error) {
 	return n, nil
 }
 ```
-### 7.7 ```WriteTo```函数
+
+### 7.7 ```ReadFrom```函数
+1. 先预分配512字节的空间, 此版本的minRead= 512, grow函数腾讯会腾出512字节的空间(可能实际不止)
+2. 修改[]byte结构体的Len成员变量
+3. 根据grow函数返回可以写的位置, ```r.Read(i:cap(b.buf))```直接填完整个buf
+4. 修改[]byte结构体的Len成员变量
+5. 统计已读数据
+
+```go
+func (b *Buffer) ReadFrom(r io.Reader) (n int64, err error) {
+	b.lastRead = opInvalid
+	for {
+		// 见1
+		i := b.grow(MinRead)
+		// 见2
+		b.buf = b.buf[:i]
+		// 见3
+		m, e := r.Read(b.buf[i:cap(b.buf)])
+		if m < 0 {
+			panic(errNegativeRead)
+		}
+
+		// 见4
+		b.buf = b.buf[:i+m]
+		// 见5
+		n += int64(m)
+		// 读结束
+		if e == io.EOF {
+			return n, nil // e is EOF, so return nil explicitly
+		}
+		// 错误返回
+		if e != nil {
+			return n, e
+		}
+	}
+}
+```
+## 八、```Read```关键流程函数
+### 8.1 ```WriteTo```函数
+1. 此时buf内部有数据
+2. 直接把[]byte里面的数据写走
+3. 更新off, 标识下还可以写的数据
+4. buf都写走了, 重置下数据
 ```go
 // WriteTo writes data to w until the buffer is drained or an error occurs.
 // The return value n is the number of bytes written; it always fits into an
@@ -285,16 +327,22 @@ func (b *Buffer) WriteRune(r rune) (n int, err error) {
 // encountered during the write is also returned.
 func (b *Buffer) WriteTo(w io.Writer) (n int64, err error) {
 	b.lastRead = opInvalid
+	// 见1
 	if nBytes := b.Len(); nBytes > 0 {
+		// 见2
 		m, e := w.Write(b.buf[b.off:])
+		// 异常判断
 		if m > nBytes {
 			panic("bytes.Buffer.WriteTo: invalid Write count")
 		}
+		// 见3
 		b.off += m
+		// 已写走的数据
 		n = int64(m)
 		if e != nil {
 			return n, e
 		}
+		// 异常判断
 		// all bytes should have been written, by definition of
 		// Write method in io.Writer
 		if m != nBytes {
@@ -304,32 +352,6 @@ func (b *Buffer) WriteTo(w io.Writer) (n int64, err error) {
 	// Buffer is now empty; reset.
 	b.Reset()
 	return n, nil
-}
-```
-
-## 八、```Read```关键流程函数
-
-### 8.1 ```ReadFrom```函数
-```go
-func (b *Buffer) ReadFrom(r io.Reader) (n int64, err error) {
-	b.lastRead = opInvalid
-	for {
-		i := b.grow(MinRead)
-		b.buf = b.buf[:i]
-		m, e := r.Read(b.buf[i:cap(b.buf)])
-		if m < 0 {
-			panic(errNegativeRead)
-		}
-
-		b.buf = b.buf[:i+m]
-		n += int64(m)
-		if e == io.EOF {
-			return n, nil // e is EOF, so return nil explicitly
-		}
-		if e != nil {
-			return n, e
-		}
-	}
 }
 ```
 
