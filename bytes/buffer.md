@@ -583,7 +583,7 @@ func (b *Buffer) ReadString(delim byte) (line string, err error) {
 }
 ```
 
-## 九、可能的问题
+## 九、可能的疑问
 ### 9.1 read/write成对使用, 内存会爆炸吗?
 如果bytes.Buffer, 一端不停地写, 一端不停地读, 内存会不会炸裂  
 不会.
