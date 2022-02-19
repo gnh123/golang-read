@@ -582,3 +582,13 @@ func (b *Buffer) ReadString(delim byte) (line string, err error) {
 	return string(slice), err
 }
 ```
+
+## 九、可能的问题
+### 9.1 read/write成对使用, 内存会爆炸吗?
+如果bytes.Buffer, 一端不停地写, 一端不停地读, 内存会不会炸裂  
+不会.
+在Write流程的grow函数里面会这样一行代码, 会把后面的数据移动到前面.
+```
+copy(b.buf, b.buf[b.off:])
+```
+
