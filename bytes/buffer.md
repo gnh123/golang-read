@@ -487,6 +487,9 @@ func (b *Buffer) ReadRune() (r rune, size int, err error) {
 ```
 
 ### 8.6 ```UnreadRune```函数
+1. 异常检测
+2. off如果大于b.lastRead, 回退一个b.lastRead的长度
+3. 总结:回退一个Rune
 ```go
 // UnreadRune unreads the last rune returned by ReadRune.
 // If the most recent read or write operation on the buffer was
@@ -494,9 +497,11 @@ func (b *Buffer) ReadRune() (r rune, size int, err error) {
 // it is stricter than UnreadByte, which will unread the last byte
 // from any read operation.)
 func (b *Buffer) UnreadRune() error {
+	// 见1
 	if b.lastRead <= opInvalid {
 		return errors.New("bytes.Buffer: UnreadRune: previous operation was not a successful ReadRune")
 	}
+	// 见2
 	if b.off >= int(b.lastRead) {
 		b.off -= int(b.lastRead)
 	}
@@ -507,11 +512,16 @@ func (b *Buffer) UnreadRune() error {
 ```
 
 ### 8.7 ```UnreadByte```函数
+1. 异常检测
+2. 重置lastRead为opInvalid
+3. off的值--, 回退一个字节的长度
 ```go
 func (b *Buffer) UnreadByte() error {
+	// 见1
 	if b.lastRead == opInvalid {
 		return errUnreadByte
 	}
+	// 见2
 	b.lastRead = opInvalid
 	if b.off > 0 {
 		b.off--
@@ -521,37 +531,54 @@ func (b *Buffer) UnreadByte() error {
 ```
 
 ### 8.8 ```ReadBytes```函数
+1. 读取一个slice(注意是浅引用)
+2. 重新返回一个深拷贝
 ```go
 func (b *Buffer) ReadBytes(delim byte) (line []byte, err error) {
+	// 见1
 	slice, err := b.readSlice(delim)
 	// return a copy of slice. The buffer's backing array may
 	// be overwritten by later calls.
+	// 见2
 	line = append(line, slice...)
 	return line, err
 }
 ```
 
 ### 8.9 ```readSlice```函数
+1. 使用IndexByte查找字符, 算出结束的位置. 如果IndexByte返回<0, 则说明byte已经io.EOF
+2. 取出off至end之间的值. 返回时使用
+3. 更新b.off和lastRead的flag
+
 ```go
 // readSlice is like ReadBytes but returns a reference to internal buffer data.
 func (b *Buffer) readSlice(delim byte) (line []byte, err error) {
+	// 见1
 	i := IndexByte(b.buf[b.off:], delim)
+	// 见1
 	end := b.off + i + 1
 	if i < 0 {
 		end = len(b.buf)
 		err = io.EOF
 	}
+	// 见2
 	line = b.buf[b.off:end]
+	// 见3
 	b.off = end
+	// 见3
 	b.lastRead = opRead
 	return line, err
 }
 
 ```
 ### 8.10 ```ReadString```函数
+1. 读取一个slice(注意是浅引用)
+2. 重新返回一个深拷贝, string会malloc一块新内存
 ```go
 func (b *Buffer) ReadString(delim byte) (line string, err error) {
+	// 见1
 	slice, err := b.readSlice(delim)
+	// 见2
 	return string(slice), err
 }
 ```
