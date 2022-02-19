@@ -356,6 +356,10 @@ func (b *Buffer) WriteTo(w io.Writer) (n int64, err error) {
 ```
 
 ### 8.2 ```Read```函数
+1. 如果buf里面的数据都被取完. 或者就没写过数据, 先Reset()状态
+2. 盛数据的p是空的, 直接返回. p不为空, 就返回io.EOF
+3. copy数据走, 更新off
+4. 如果取的数据> 0, 设置下lastRead的flag是opRead
 ```go
 // Read reads the next len(p) bytes from the buffer or until the buffer
 // is drained. The return value n is the number of bytes read. If the
@@ -363,16 +367,23 @@ func (b *Buffer) WriteTo(w io.Writer) (n int64, err error) {
 // otherwise it is nil.
 func (b *Buffer) Read(p []byte) (n int, err error) {
 	b.lastRead = opInvalid
+	// 见1
 	if b.empty() {
+		// 见1
 		// Buffer is empty, reset to recover space.
 		b.Reset()
+		// 见2
 		if len(p) == 0 {
 			return 0, nil
 		}
+		// 见2
 		return 0, io.EOF
 	}
+	// 见3
 	n = copy(p, b.buf[b.off:])
+	// 见3
 	b.off += n
+	// 见4
 	if n > 0 {
 		b.lastRead = opRead
 	}
@@ -381,18 +392,28 @@ func (b *Buffer) Read(p []byte) (n int, err error) {
 ```
 
 ### 8.3 ```Next```函数
+1. 先重置下flag
+2. 取最小长度
+3. 返回这段长度的数据(浅引用), 并且更新off值, 更新lastRead为opRead
+4. 总结: 和Read做的事情有点相似, 一个是copy数据, 一个是返回的引用
 ```go
 // Next returns a slice containing the next n bytes from the buffer,
 // advancing the buffer as if the bytes had been returned by Read.
 // If there are fewer than n bytes in the buffer, Next returns the entire buffer.
 // The slice is only valid until the next call to a read or write method.
 func (b *Buffer) Next(n int) []byte {
+	// 见1
 	b.lastRead = opInvalid
+	// 见2
 	m := b.Len()
+	// 见2
 	if n > m {
+		// 见2
 		n = m
 	}
+	// 见3
 	data := b.buf[b.off : b.off+n]
+	// 见3
 	b.off += n
 	if n > 0 {
 		b.lastRead = opRead
@@ -402,23 +423,34 @@ func (b *Buffer) Next(n int) []byte {
 ```
 
 ### 8.4 ```ReadByte```函数
+1. 如果buf里面的数据都被取完. 或者就没写过数据, 先Reset()状态, 直接返回io.EOF
+2. copy数据走, 更新off
+3. 设置下lastRead的flag是opRead
 ```go
 // ReadByte reads and returns the next byte from the buffer.
 // If no byte is available, it returns error io.EOF.
 func (b *Buffer) ReadByte() (byte, error) {
+	// 见1
 	if b.empty() {
+		// 见1
 		// Buffer is empty, reset to recover space.
 		b.Reset()
 		return 0, io.EOF
 	}
+	// 见2
 	c := b.buf[b.off]
+	// 见2
 	b.off++
+	// 见3
 	b.lastRead = opRead
 	return c, nil
 }
 ```
 
 ### 8.5 ```ReadRune```函数
+1. 如果buf里面的数据都被取完. 或者就没写过数据, 先Reset()状态, 直接返回io.EOF
+2. 取ascii码的逻辑;先取一个字节, 恩是ascii码, 直接走起. 设置lastRead是opReadRune1标识
+3. 取utf8码的逻辑; 先解码得到unicode和长度. 最后设置lastRead就走
 ```go
 // ReadRune reads and returns the next UTF-8-encoded
 // Unicode code point from the buffer.
@@ -426,19 +458,29 @@ func (b *Buffer) ReadByte() (byte, error) {
 // If the bytes are an erroneous UTF-8 encoding, it
 // consumes one byte and returns U+FFFD, 1.
 func (b *Buffer) ReadRune() (r rune, size int, err error) {
+	// 见1
 	if b.empty() {
+		// 见1
 		// Buffer is empty, reset to recover space.
 		b.Reset()
+		// 见1
 		return 0, 0, io.EOF
 	}
+	// 见2
 	c := b.buf[b.off]
+	// 见2
 	if c < utf8.RuneSelf {
+		// 见2
 		b.off++
+		// 见2
 		b.lastRead = opReadRune1
 		return rune(c), 1, nil
 	}
+	// 见3
 	r, n := utf8.DecodeRune(b.buf[b.off:])
+	// 见3
 	b.off += n
+	// 见3
 	b.lastRead = readOp(n)
 	return r, n, nil
 }
