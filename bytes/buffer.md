@@ -2,7 +2,7 @@
 ```v1.17.6```
 
 ## 零、前言```bytes.Buffer```
-bytes.Buffer是组合数据使用频率最高的一个包之一
+bytes.Buffer是组合数据使用频率最高的一类包
 
 ## 一、用法示例
 ```go
@@ -146,7 +146,11 @@ func (b *Buffer) tryGrowByReslice(n int) (int, bool) {
 1. buffer是空的情况, 重置下状态
 1. 如果实际空间满足, 返回可以写的位置
 1. 如果buf没有被初始化, 并且要写的值小于一个阈值, 统一都用这个值初始化
-1. 如果加上将要写入的数据得到总长度, 总长度<= 实际容量的一半, 把以前的数据从右边移到左边
+1. 如果加上将要写入的数据得到总长度, 总长度<= 实际容量的一半, 把以前的数据从右边移到
+左边
+1. 如果实际的长度的2倍+需要写的长度  > 最长值. 直接panic, 如需扩容也是 2 * c + n的扩, 所以扩容之前先判断下. 这是重点操作
+1. 扩容数据 2 * c + n, 移动数据, 重置off变量
+1. 总结:grow就是分配空间的函数.
 ```go
 // grow grows the buffer to guarantee space for n more bytes.
 // It returns the index where bytes should be written.
@@ -171,6 +175,7 @@ func (b *Buffer) grow(n int) int {
 	// 见4
 	c := cap(b.buf)
 	if n <= c/2-m {
+		// 见5
 		// We can slide things down instead of allocating a new
 		// slice. We only need m+n <= c to slide, but
 		// we instead let capacity get twice as large so we
@@ -179,6 +184,7 @@ func (b *Buffer) grow(n int) int {
 	} else if c > maxInt-c-n {
 		panic(ErrTooLarge)
 	} else {
+		// 见6
 		// Not enough space anywhere, we need to allocate.
 		buf := makeSlice(2*c + n)
 		copy(buf, b.buf[b.off:])
@@ -191,13 +197,297 @@ func (b *Buffer) grow(n int) int {
 }
 ```
 ### 7.3 ```Write```函数
+1. 实际空间够的话, 直接修改下slice的len指针
+1. 实际空间不够进入grow函数
+1. 拷贝数据, 完事
 ```go
 func (b *Buffer) Write(p []byte) (n int, err error) {
 	b.lastRead = opInvalid
+	// 见1
 	m, ok := b.tryGrowByReslice(len(p))
 	if !ok {
+		// 见2
 		m = b.grow(len(p))
 	}
+	// 见3
 	return copy(b.buf[m:], p), nil
+}
+```
+### 7.4 ```WriteString```函数
+Write和WriteString一样, 没啥可说的
+```go
+func (b *Buffer) WriteString(s string) (n int, err error) {
+	b.lastRead = opInvalid
+	m, ok := b.tryGrowByReslice(len(s))
+	if !ok {
+		m = b.grow(len(s))
+	}
+	return copy(b.buf[m:], s), nil
+}
+```
+
+### 7.5 ```WriteByte```函数
+```go
+// WriteByte appends the byte c to the buffer, growing the buffer as needed.
+// The returned error is always nil, but is included to match bufio.Writer's
+// WriteByte. If the buffer becomes too large, WriteByte will panic with
+// ErrTooLarge.
+func (b *Buffer) WriteByte(c byte) error {
+	b.lastRead = opInvalid
+	// 尝试分配1字节, 如果cap-1-实际写入的容量供的话
+	m, ok := b.tryGrowByReslice(1)
+	if !ok {
+		// 实际分配
+		m = b.grow(1)
+	}
+	// 赋值
+	b.buf[m] = c
+	return nil
+}
+
+```
+
+### 7.6 ```WriteRune```函数
+```go
+1. 如果r是个ascii码字符, 直接调用WriteByte写入
+2. 尝试分配
+3. 实际分配
+4. 把rune编码到[]byte里面
+// WriteRune appends the UTF-8 encoding of Unicode code point r to the
+// buffer, returning its length and an error, which is always nil but is
+// included to match bufio.Writer's WriteRune. The buffer is grown as needed;
+// if it becomes too large, WriteRune will panic with ErrTooLarge.
+func (b *Buffer) WriteRune(r rune) (n int, err error) {
+	// Compare as uint32 to correctly handle negative runes.
+	// 见1
+	if uint32(r) < utf8.RuneSelf {
+		b.WriteByte(byte(r))
+		return 1, nil
+	}
+	b.lastRead = opInvalid
+	// 见2
+	m, ok := b.tryGrowByReslice(utf8.UTFMax)
+	if !ok {
+		// 见3
+		m = b.grow(utf8.UTFMax)
+	}
+	// 见4
+	n = utf8.EncodeRune(b.buf[m:m+utf8.UTFMax], r)
+	b.buf = b.buf[:m+n]
+	return n, nil
+}
+```
+### 7.7 ```WriteTo```函数
+```go
+// WriteTo writes data to w until the buffer is drained or an error occurs.
+// The return value n is the number of bytes written; it always fits into an
+// int, but it is int64 to match the io.WriterTo interface. Any error
+// encountered during the write is also returned.
+func (b *Buffer) WriteTo(w io.Writer) (n int64, err error) {
+	b.lastRead = opInvalid
+	if nBytes := b.Len(); nBytes > 0 {
+		m, e := w.Write(b.buf[b.off:])
+		if m > nBytes {
+			panic("bytes.Buffer.WriteTo: invalid Write count")
+		}
+		b.off += m
+		n = int64(m)
+		if e != nil {
+			return n, e
+		}
+		// all bytes should have been written, by definition of
+		// Write method in io.Writer
+		if m != nBytes {
+			return n, io.ErrShortWrite
+		}
+	}
+	// Buffer is now empty; reset.
+	b.Reset()
+	return n, nil
+}
+```
+
+## 八、```Read```关键流程函数
+
+### 8.1 ```ReadFrom```函数
+```go
+func (b *Buffer) ReadFrom(r io.Reader) (n int64, err error) {
+	b.lastRead = opInvalid
+	for {
+		i := b.grow(MinRead)
+		b.buf = b.buf[:i]
+		m, e := r.Read(b.buf[i:cap(b.buf)])
+		if m < 0 {
+			panic(errNegativeRead)
+		}
+
+		b.buf = b.buf[:i+m]
+		n += int64(m)
+		if e == io.EOF {
+			return n, nil // e is EOF, so return nil explicitly
+		}
+		if e != nil {
+			return n, e
+		}
+	}
+}
+```
+
+### 8.2 ```Read```函数
+```go
+// Read reads the next len(p) bytes from the buffer or until the buffer
+// is drained. The return value n is the number of bytes read. If the
+// buffer has no data to return, err is io.EOF (unless len(p) is zero);
+// otherwise it is nil.
+func (b *Buffer) Read(p []byte) (n int, err error) {
+	b.lastRead = opInvalid
+	if b.empty() {
+		// Buffer is empty, reset to recover space.
+		b.Reset()
+		if len(p) == 0 {
+			return 0, nil
+		}
+		return 0, io.EOF
+	}
+	n = copy(p, b.buf[b.off:])
+	b.off += n
+	if n > 0 {
+		b.lastRead = opRead
+	}
+	return n, nil
+}
+```
+
+### 8.3 ```Next```函数
+```go
+// Next returns a slice containing the next n bytes from the buffer,
+// advancing the buffer as if the bytes had been returned by Read.
+// If there are fewer than n bytes in the buffer, Next returns the entire buffer.
+// The slice is only valid until the next call to a read or write method.
+func (b *Buffer) Next(n int) []byte {
+	b.lastRead = opInvalid
+	m := b.Len()
+	if n > m {
+		n = m
+	}
+	data := b.buf[b.off : b.off+n]
+	b.off += n
+	if n > 0 {
+		b.lastRead = opRead
+	}
+	return data
+}
+```
+
+### 8.4 ```ReadByte```函数
+```go
+// ReadByte reads and returns the next byte from the buffer.
+// If no byte is available, it returns error io.EOF.
+func (b *Buffer) ReadByte() (byte, error) {
+	if b.empty() {
+		// Buffer is empty, reset to recover space.
+		b.Reset()
+		return 0, io.EOF
+	}
+	c := b.buf[b.off]
+	b.off++
+	b.lastRead = opRead
+	return c, nil
+}
+```
+
+### 8.5 ```ReadRune```函数
+```go
+// ReadRune reads and returns the next UTF-8-encoded
+// Unicode code point from the buffer.
+// If no bytes are available, the error returned is io.EOF.
+// If the bytes are an erroneous UTF-8 encoding, it
+// consumes one byte and returns U+FFFD, 1.
+func (b *Buffer) ReadRune() (r rune, size int, err error) {
+	if b.empty() {
+		// Buffer is empty, reset to recover space.
+		b.Reset()
+		return 0, 0, io.EOF
+	}
+	c := b.buf[b.off]
+	if c < utf8.RuneSelf {
+		b.off++
+		b.lastRead = opReadRune1
+		return rune(c), 1, nil
+	}
+	r, n := utf8.DecodeRune(b.buf[b.off:])
+	b.off += n
+	b.lastRead = readOp(n)
+	return r, n, nil
+}
+```
+
+### 8.6 ```UnreadRune```函数
+```go
+// UnreadRune unreads the last rune returned by ReadRune.
+// If the most recent read or write operation on the buffer was
+// not a successful ReadRune, UnreadRune returns an error.  (In this regard
+// it is stricter than UnreadByte, which will unread the last byte
+// from any read operation.)
+func (b *Buffer) UnreadRune() error {
+	if b.lastRead <= opInvalid {
+		return errors.New("bytes.Buffer: UnreadRune: previous operation was not a successful ReadRune")
+	}
+	if b.off >= int(b.lastRead) {
+		b.off -= int(b.lastRead)
+	}
+	b.lastRead = opInvalid
+	return nil
+}
+
+```
+
+### 8.7 ```UnreadByte```函数
+```go
+func (b *Buffer) UnreadByte() error {
+	if b.lastRead == opInvalid {
+		return errUnreadByte
+	}
+	b.lastRead = opInvalid
+	if b.off > 0 {
+		b.off--
+	}
+	return nil
+}
+```
+
+### 8.8 ```ReadBytes```函数
+```go
+func (b *Buffer) ReadBytes(delim byte) (line []byte, err error) {
+	slice, err := b.readSlice(delim)
+	// return a copy of slice. The buffer's backing array may
+	// be overwritten by later calls.
+	line = append(line, slice...)
+	return line, err
+}
+```
+
+### 8.9 ```readSlice```函数
+```go
+// readSlice is like ReadBytes but returns a reference to internal buffer data.
+func (b *Buffer) readSlice(delim byte) (line []byte, err error) {
+	i := IndexByte(b.buf[b.off:], delim)
+	end := b.off + i + 1
+	if i < 0 {
+		end = len(b.buf)
+		err = io.EOF
+	}
+	line = b.buf[b.off:end]
+	b.off = end
+	b.lastRead = opRead
+	return line, err
+}
+
+```
+### 8.10 ```ReadString```函数
+```go
+func (b *Buffer) ReadString(delim byte) (line string, err error) {
+	slice, err := b.readSlice(delim)
+	return string(slice), err
 }
 ```
