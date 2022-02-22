@@ -35,10 +35,17 @@ func Count(s, substr string) int {
 ```
 
 ## 二、```strings.Replace```
-1. 如果潜换的新值等于旧值, 或者n为0, 那就不替换
+1. 如果替换的新值等于旧值, 或者n为0, 那就不替换
 2. 先统计要被替换的字符有多少个, Replace的n为负值时, 全局替换, 或者要替换的个数>= 实际的old串的个数, 修改下替换个数
 3. 计算新串需要的内部空间 len(s) + n *(len(new) - len(old))
-```
+4. 遍历需要替换的次数
+5. j := start, 形成双指针变量
+6. 如果old为空, 并且不是第1个位置. 计算让j偏移一个unicode码的位置, 如果是ascii就走1个字节的位置, utf8就看实际的码的宽度, 更新j的位置
+7. 直接更新j值, 一般的话, Index找不到会返回-1, 这里不需要判断, Count(s, old) 已经保证了只有找到的逻辑才会进下来的for循环
+8. ```b.WriteString((s[start:j])```写入不需要被替换的字符串, ```b.WriteString(new)```写入新串, 跳过第一轮老串的位置```start = j + len(old)```
+9. 写入尾巴的数据, 如果有的话
+9. 总结:```Replace```替换=不需要替换的字符串+new串组成一个新串返回出去
+```go
 // Replace returns a copy of the string s with the first n
 // non-overlapping instances of old replaced by new.
 // If old is empty, it matches at the beginning of the string
@@ -65,21 +72,32 @@ func Replace(s, old, new string, n int) string {
         // 见3
         b.Grow(len(s) + n*(len(new)-len(old)))
         start := 0
+        // 见4
         for i := 0; i < n; i++ {
+                // 见5
                 j := start
                 if len(old) == 0 {
+                        // 见6
                         if i > 0 {
+                                // 见6
                                 _, wid := utf8.DecodeRuneInString(s[start:])
+                                // 见6
                                 j += wid
                         }
                 } else {
+                        // 见7
                         j += Index(s[start:], old)
                 }
+                // 见8
                 b.WriteString(s[start:j])
+                // 见8
                 b.WriteString(new)
+                // 见8
                 start = j + len(old)
         }
+        // 见9
         b.WriteString(s[start:])
+        // 返回新串
         return b.String()
 }
 
