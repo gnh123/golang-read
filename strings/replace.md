@@ -4,7 +4,10 @@
 ```strings.Replace```是go第1个版本就带的函数, 主要用于多关键字替换
 
 ## 一、定义和初始化函数
+1. ```Replacer```结构体由3个成员变量组成, once用于初始化一次, r里面有多种实现, oldnew里面有源词, 目标词
+2. NewReplacer构造函数, 保存oldnew到成员变量中
 ```go
+// 见1
 type Replacer struct {
         once   sync.Once // guards buildOnce method
         r      replacer
@@ -88,17 +91,23 @@ func (b *Replacer) build() replacer {
 }
 ```
 
-## 三、 TODO
+## 三、 Replace调用流程
+1. 调用```buildOnce```, 用于生成```replacer```替换规则. 使用```sync.Once```包过, 只会调用一次
+2. 调用```Replace```或者```WriteString```接口
 ```go
 // Replace returns a copy of s with all replacements performed.
 func (r *Replacer) Replace(s string) string {
+		// 见1
         r.once.Do(r.buildOnce)
+		// 见2
         return r.r.Replace(s)
 }
 
 // WriteString writes s to w with all replacements performed.
 func (r *Replacer) WriteString(w io.Writer, s string) (n int, err error) {
+		// 见1
         r.once.Do(r.buildOnce)
+		// 见2
         return r.r.WriteString(w, s)
 }
 
